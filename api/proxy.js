@@ -1,47 +1,70 @@
+import cheerio from "cheerio";
+
 export default async function handler(req, res) {
   // Obtén la URL destino desde el parámetro query "url"
   const targetUrl = req.query.url;
   if (!targetUrl) {
-    return res.status(400).send("Falta el parámetro 'url'");
+    return res.status(400).json({ error: "Falta el parámetro 'url'" });
   }
 
   try {
-    if (req.method === "GET") {
-      // Manejo de solicitudes GET
-      const response = await fetch(targetUrl, {
-        headers: {
-          // Simula un navegador real (ajusta la versión si lo deseas)
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            + "AppleWebKit/537.36 (KHTML, like Gecko) "
-            + "Chrome/115.0.0.0 Safari/537.36"
-        }
-      });
-      const text = await response.text();
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      return res.status(response.ok ? 200 : response.status).send(text);
+    const userAgent =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/115.0.0.0 Safari/537.36";
 
+    let fetchOptions = {};
+    if (req.method === "GET") {
+      // Opciones para GET
+      fetchOptions = {
+        headers: { "User-Agent": userAgent }
+      };
     } else if (req.method === "POST") {
-      // Manejo de solicitudes POST (se asume "application/x-www-form-urlencoded")
+      // Opciones para POST (se asume "application/x-www-form-urlencoded")
       const bodyContent = new URLSearchParams(req.body).toString();
-      const response = await fetch(targetUrl, {
+      fetchOptions = {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          // Simula un navegador real
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            + "AppleWebKit/537.36 (KHTML, like Gecko) "
-            + "Chrome/115.0.0.0 Safari/537.36"
+          "User-Agent": userAgent
         },
         body: bodyContent
-      });
-      const text = await response.text();
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      return res.status(response.ok ? 200 : response.status).send(text);
-
+      };
     } else {
-      return res.status(405).send("Método no permitido");
+      return res.status(405).json({ error: "Método no permitido" });
     }
+
+    const response = await fetch(targetUrl, fetchOptions);
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).json({ error: errorText });
+    }
+    const html = await response.text();
+
+    // Parsear el HTML con Cheerio
+    const $ = cheerio.load(html);
+    const table = $("table").first();
+    if (!table.length) {
+      return res.json({ data: [], message: "No se encontró la tabla" });
+    }
+
+    const results = [];
+    table.find("tbody tr").each((index, row) => {
+      const cells = $(row).find("td");
+      if (cells.length >= 5) {
+        const nombre = $(cells[0]).text().trim();
+        const rut = $(cells[1]).text().trim();
+        const genero = $(cells[2]).text().trim();
+        const direccion = $(cells[3]).text().trim();
+        const ciudad = $(cells[4]).text().trim();
+
+        results.push({ nombre, rut, genero, direccion, ciudad });
+      }
+    });
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.status(200).json({ data: results });
   } catch (error) {
-    return res.status(500).send(error.toString());
+    return res.status(500).json({ error: error.toString() });
   }
 }
